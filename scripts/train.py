@@ -1,29 +1,48 @@
 import torch
+from torch.optim import Adam
 from diffusers import DDPMPipeline
 from datasets import load_dataset
+from torchvision.transforms import Compose, ToTensor, Normalize
+
 
 def train():
-    # Load dataset
-    dataset = load_dataset("huggan/flowers-102", split="train")
-    
+    # Load CIFAR-10 dataset and preprocess images
+    dataset = load_dataset("cifar10", split="train")
+    transform = Compose([ToTensor(), Normalize((0.5,), (0.5,))])  # Normalize to [-1, 1]
+
     # Initialize model
     model_name = "google/ddpm-celebahq-256"
-    pipeline = DDPMPipeline.from_pretrained(model_name)
+    pipeline = DDPMPipeline.from_pretrained(model_name, torch_dtype=torch.float32).to("mps")
+    optimizer = Adam(pipeline.unet.parameters(), lr=1e-4)
 
-    # Fine-tuning loop (if needed)
+    # Fine-tuning loop
     for epoch in range(5):
-        for batch in dataset:
-            images = batch["image"].to("mps")  # Adapt for Mac M2
-            noise = torch.randn_like(images)
-            timesteps = torch.randint(0, pipeline.scheduler.num_train_timesteps, (images.shape[0],))
+        print(f"Epoch {epoch+1}/5")
+        for i, batch in enumerate(dataset):
+            # Extract and preprocess image
+            image = batch["img"]  # 'img' is the key for CIFAR-10
+            image = transform(image).unsqueeze(0).to("mps")  # Add batch dimension
             
-            # Denoising process
-            noisy_images = pipeline.scheduler.add_noise(images, noise, timesteps)
-            outputs = pipeline.unet(noisy_images, timesteps)
-            loss = compute_loss(outputs, images)
-            
+            # Add noise to the image
+            noise = torch.randn_like(image)
+            timesteps = torch.randint(0, pipeline.scheduler.num_train_timesteps, (image.shape[0],)).to("mps")
+            noisy_images = pipeline.scheduler.add_noise(image, noise, timesteps)
+
+            # Forward pass through the UNet model
+            outputs = pipeline.unet(noisy_images, timesteps)["sample"]
+
+            # Compute mean squared error loss
+            loss = torch.nn.functional.mse_loss(outputs, image)
+
+            # Backpropagation and optimization step
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            # Print progress
+            if (i + 1) % 100 == 0:
+                print(f"Batch {i+1}: Loss = {loss.item():.4f}")
+
 
 if __name__ == "__main__":
     train()
