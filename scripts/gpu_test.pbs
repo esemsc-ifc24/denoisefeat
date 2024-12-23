@@ -1,0 +1,23 @@
+#!/bin/bash
+#PBS -N gpu_test
+#PBS -l select=1:ncpus=4:ngpus=1:mem=16gb
+#PBS -l walltime=00:10:00
+#PBS -W group_list=hpc-ggorman
+#PBS -j oe
+
+# Load necessary modules
+module load cuda/11.0.1
+
+# Activate your environment
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate hpcenv
+
+# Check CUDA and GPU availability
+echo "CUDA Version:"
+nvcc --version
+
+echo "Checking GPU availability with nvidia-smi:"
+nvidia-smi
+
+echo "Torch CUDA availability check:"
+python -c "import torch; print('CUDA Available:', torch.cuda.is_available()); print('CUDA Version:', torch.version.cuda); print('Torch Version:', torch.__version__)"
